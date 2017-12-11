@@ -7,9 +7,10 @@ import torch.nn as nn
 from tqdm import tqdm
 import numpy as np
 import itertools
+import evaluation
 
 
-def updateScores(args, cs_tensor, similar, i, sum_av_prec, sum_ranks, num_samples, top_5, top_1):
+def updateScores(args, cs_tensor, similar, i, all_samples):
 
     scores_list = []
 
@@ -25,40 +26,16 @@ def updateScores(args, cs_tensor, similar, i, sum_av_prec, sum_ranks, num_sample
         scores_list.append( (x, j) )
 
     scores_list = sorted(scores_list, reverse = True, key=itemgetter(0))
-
-    count = 0.0
-    last_index = -1
-    sum_prec = 0.0
-    similar_indices = []
-    flag = 0
-
-    for k in similar:
-        if k != -1:
-            similar_indices.append(k)
+    binary_scores_list = []
 
     for j in range(20):
-        if scores_list[j][1] in similar_indices:
-            count += 1
-            sum_prec += count/(j+1)
-            last_index = j+1
+        if scores_list[j][1] in similar:
+            binary_scores_list.append(1)
+        else:
+            binary_scores_list.append(0)
 
-            if flag == 0:
-                sum_ranks += 1.0/(j+1)
-                flag = 1
+    all_samples.append(binary_scores_list)
 
-            if j == 0:
-                top_1 += 1
-
-            if j < 5:
-                top_5 += 1
-
-    if last_index > 0:
-        sum_prec /= count
-
-    sum_av_prec += sum_prec
-    num_samples += 1
-
-    return sum_av_prec, sum_ranks, num_samples, top_5, top_1
 
 def train_model(train_data, dev_data, model, args):
     if args.cuda:
@@ -91,6 +68,7 @@ def test_model(test_data, model, args):
     run_epoch(test_data, False, model, None, args)
 
 
+all_samples = []
 def run_epoch(data, is_training, model, optimizer, args):
     '''
     Train model for one pass of train data, and return loss, acccuracy
@@ -109,11 +87,6 @@ def run_epoch(data, is_training, model, optimizer, args):
     else:
         model.eval()
 
-    sum_av_prec = 0.0
-    sum_ranks = 0.0
-    num_samples = 0.0
-    top_5 = 0.0
-    top_1 = 0.0
 
     for batch in tqdm(data_loader):
 
@@ -175,9 +148,8 @@ def run_epoch(data, is_training, model, optimizer, args):
             #Average Precision = (sum_{i in j} P@i / j)  where j is the last index
 
             for i in range(args.batch_size):
-                sum_av_prec, sum_ranks, num_samples, top_5, top_1 = \
                 updateScores(args, cs_tensor, batch['similar'][i], i,
-                sum_av_prec, sum_ranks, num_samples, top_5, top_1)
+                all_samples)
 
     # Calculate epoch level scores
     if is_training:
@@ -185,11 +157,8 @@ def run_epoch(data, is_training, model, optimizer, args):
         print('Average Train loss: {:.6f}'.format(avg_loss))
         print()
     else:
-        _map = sum_av_prec/num_samples
-        _mrr = sum_ranks/num_samples
-        _pat5 = top_5/(num_samples*5)
-        _pat1 = top_1/num_samples
-        print('MAP: {:.3f}'.format(_map))
-        print('MRR: {:.3f}'.format(_mrr))
-        print('P@1: {:.3f}'.format(_pat1))
-        print('P@5: {:.3f}'.format(_pat5))
+        evalobj = evaluation.Evaluation(all_samples)
+        print "MAP:", evalobj.MAP()
+        print "MRR:", evalobj.MRR()
+        print "P@5:", evalobj.Precision(5)
+        print "P@1:", evalobj.Precision(1)
