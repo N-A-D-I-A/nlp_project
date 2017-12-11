@@ -27,6 +27,7 @@ def computeBM25(path):
             for j in range(len(bm25)):
                 scores_list.append( (bm25[j], j) )
 
+            scores_list = sorted(scores_list, reverse = True, key=itemgetter(0))
             binary_scores_list = []
 
             for j in range(len(bm25)):
